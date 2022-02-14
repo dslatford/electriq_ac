@@ -30,7 +30,7 @@ public:
   }
 
   // send regular heartbeat and check for any response
-  // any response we read here is likely to be from the previous heartbeat. Not a huge deal to wait 1.5 seconds
+  // any response we read here is likely to be from the previous heartbeat. Not a huge deal to wait 1.6 seconds
   void SendHeartbeat()
   {
     write_array({0xAA, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xAC});
@@ -97,6 +97,8 @@ public:
   // read and parse messages from MCU serial
   void ReadMCU()
   {
+    uint8_t pos = 0;
+    uint8_t csum = 0;
     uint8_t c;
     uint8_t b[16];
     // find header byte, read further 16 bytes into array
@@ -106,11 +108,21 @@ public:
       if (c == 0xAA)
       {
         read_array(b, 16);
-        // ESP_LOGD(TAG, "ReadMCU Mode: %s Swing: %s Temp1: %s Action: %s", format_hex_pretty(b[1]).c_str(), format_hex_pretty(b[2]).c_str(), format_hex_pretty(b[7]).c_str(), format_hex_pretty(b[11]).c_str());
         // if any more bytes available in the serial buffer, read each one to clear them out
         while (this->available())
         {
           read_byte(&c);
+        }
+        // validate the checksum before progressing
+        while (pos < 14)
+        {
+          csum += b[pos];
+          ++pos;
+        }
+        if ((csum += 0xAA) != b[15])
+        {
+          ESP_LOGD(TAG, "Bad received checksum %s, should be %s", format_hex_pretty(csum).c_str(), format_hex_pretty(b[15]).c_str());
+          return;
         }
         // Simple bitwise AND ops to get fan, mode, swing and action nibbles
         uint8_t f = (b[1] & 0xF0);
