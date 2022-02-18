@@ -5,8 +5,8 @@ static const char *const TAG = "electriq_ac";
 
 uint8_t ac_mode = 0x03;
 uint8_t fan_speed = 0x90;
-uint8_t swing = 0x00;
-uint8_t target_temp = 0x19;
+uint8_t swing = 0;
+uint8_t target_temp = 0;
 
 class ElectriqAC : public Component, public UARTDevice, public Climate
 {
@@ -15,7 +15,7 @@ public:
 
   void setup() override
   {
-    this->set_interval("heartbeat", 1600, [this] { SendHeartbeat(); });
+    this->set_interval("heartbeat", 1800, [this]{ SendHeartbeat(); });
   }
 
   // calculate checksum and write out the serial message
@@ -23,10 +23,19 @@ public:
   {
     uint8_t tuyacmd;
     tuyacmd = (ac_mode + fan_speed);
-    uint8_t checksum = (0xAA + 0x03 + tuyacmd + swing + target_temp + 0x0B);
-    write_array({0xAA, 0x03, tuyacmd, swing, target_temp, 0x00, 0x00, 0x00, 0x0B, 0x00, 0x00, checksum});
-    // we wrote something, so ensure it's published back to HA too
-    this->publish_state();
+    // ensure we have obtained the MCU settings and published before commanding the MCU
+    if (target_temp != 0)
+    {
+      uint8_t checksum = (0xAA + 0x03 + tuyacmd + swing + target_temp + 0x0B);
+      write_array({0xAA, 0x03, tuyacmd, swing, target_temp, 0x00, 0x00, 0x00, 0x0B, 0x00, 0x00, checksum});
+      ESP_LOGD(TAG, "SendToMCU fan/mode: %s, target_temp: %s", format_hex_pretty(tuyacmd).c_str(), format_hex_pretty(target_temp).c_str());
+      // we wrote something, so ensure it's published back to HA too
+      this->publish_state();
+    }
+    else
+    {
+      ESP_LOGD(TAG, "Something to write but target_temp zero? %s", format_hex_pretty(target_temp).c_str());
+    }
   }
 
   // send regular heartbeat and check for any response
@@ -94,6 +103,15 @@ public:
     }
   }
 
+  bool CheckIdle(uint8_t &a)
+  {
+    if (a == 0x00)
+    {
+      return true;
+    }
+    return false;
+  }
+
   // read and parse messages from MCU serial
   void ReadMCU()
   {
@@ -129,54 +147,65 @@ public:
         uint8_t m = (b[1] & 0x0F);
         uint8_t s = (b[2] & 0x0F);
         uint8_t a = (b[11] & 0x0F);
-        static uint8_t lcs;
-        // if action is non-zero (off/idle) update action/mode
-        if (a != 0x00)
+        static uint8_t last_b1;  // command
+        static uint8_t last_b2;  // swing
+        static uint8_t last_b3;  // set temp
+        static uint8_t last_b7;  // temp probe
+        static uint8_t last_b11; // active state
+
+        if (f == 0x10)
         {
+          ESP_LOGD(TAG, "Detected mode: Standby");
+          this->action = climate::CLIMATE_ACTION_OFF;
+          this->mode = climate::CLIMATE_MODE_OFF;
+          AcModes();
+        }
+        else
+        { // not in standby, report mode / idle at all times
           switch (m)
           {
           case 0x01:
           default:
-            this->action = climate::CLIMATE_ACTION_COOLING;
+            if (!CheckIdle(a))
+            {
+              this->action = climate::CLIMATE_ACTION_COOLING;
+            }
+            ESP_LOGD(TAG, "Detected mode: Cool");
             this->mode = climate::CLIMATE_MODE_COOL;
             AcModes();
-            ESP_LOGD(TAG, "Action: Cooling");
             break;
           case 0x02:
-            this->action = climate::CLIMATE_ACTION_DRYING;
+            if (!CheckIdle(a))
+            {
+              this->action = climate::CLIMATE_ACTION_DRYING;
+            }
+            ESP_LOGD(TAG, "Detected mode: Dry");
             this->mode = climate::CLIMATE_MODE_DRY;
             AcModes();
-            ESP_LOGD(TAG, "Action: Drying");
             break;
           case 0x03:
-            this->action = climate::CLIMATE_ACTION_FAN;
+            if (!CheckIdle(a))
+            {
+              this->action = climate::CLIMATE_ACTION_FAN;
+            }
+            ESP_LOGD(TAG, "Detected mode: Fan");
             this->mode = climate::CLIMATE_MODE_FAN_ONLY;
             AcModes();
-            ESP_LOGD(TAG, "Action: Fan");
             break;
           case 0x04:
-            this->action = climate::CLIMATE_ACTION_HEATING;
+            if (!CheckIdle(a))
+            {
+              this->action = climate::CLIMATE_ACTION_HEATING;
+            }
+            ESP_LOGD(TAG, "Detected mode: Heat");
             this->mode = climate::CLIMATE_MODE_HEAT;
             AcModes();
-            ESP_LOGD(TAG, "Action: Heating");
             break;
           }
-        }
-        else
-        {
-          // check fan status for idle
-          if (f != 0x10)
+          if (CheckIdle(a))
           {
+            ESP_LOGD(TAG, "Detected action: Idle");
             this->action = climate::CLIMATE_ACTION_IDLE;
-            ESP_LOGD(TAG, "Action: Idling");
-          }
-          else
-          {
-            // we have to be in standby to reach here
-            this->action = climate::CLIMATE_ACTION_OFF;
-            this->mode = climate::CLIMATE_MODE_OFF;
-            AcModes();
-            ESP_LOGD(TAG, "Action: Standby");
           }
         }
         // update fan speed
@@ -184,40 +213,44 @@ public:
         {
         case 0x90:
         default:
+          ESP_LOGD(TAG, "Detected fan: low");
           this->fan_mode = climate::CLIMATE_FAN_LOW;
-          ESP_LOGD(TAG, "Fan: low");
           break;
         case 0xB0:
+          ESP_LOGD(TAG, "Detected fan: medium");
           this->fan_mode = climate::CLIMATE_FAN_MEDIUM;
-          ESP_LOGD(TAG, "Fan: medium");
           break;
         case 0xD0:
+          ESP_LOGD(TAG, "Detected fan: high");
           this->fan_mode = climate::CLIMATE_FAN_HIGH;
-          ESP_LOGD(TAG, "Fan: high");
           break;
         }
         // update swing
         if (s == 0x0C)
         {
+          ESP_LOGD(TAG, "Detected swing: on");
           this->swing_mode = climate::CLIMATE_SWING_VERTICAL;
-          ESP_LOGD(TAG, "Swing: on");
         }
         else
         {
+          ESP_LOGD(TAG, "Detected swing: off");
           this->swing_mode = climate::CLIMATE_SWING_OFF;
-          ESP_LOGD(TAG, "Swing: off");
         }
 
         this->current_temperature = b[7];
         this->target_temperature = b[3];
+        target_temp = b[3];
 
-        // publish_state on change only
-        // IMPROVE - sometimes two bytes can change with no difference in sum. Find better way.
-        uint8_t cs = (b[1] + b[2] + b[3] + b[7] + b[11]);
-        if (lcs != cs)
+        // only publish state if something changes
+        if ((last_b1 != b[1]) || (last_b2 != b[2]) || (last_b3 != b[3]) || (last_b7 != b[7]) || (last_b11 != b[11]))
         {
-          lcs = cs;
+          ESP_LOGD(TAG, "Publishing new state...");
           this->publish_state();
+          last_b1 = b[1];
+          last_b2 = b[2];
+          last_b3 = b[3];
+          last_b7 = b[7];
+          last_b11 = b[11];
         }
       }
     }
@@ -227,6 +260,7 @@ public:
   {
     if (call.get_mode().has_value())
     {
+      ESP_LOGD(TAG, "New mode value seen");
       ClimateMode mode = *call.get_mode();
       this->mode = mode;
       AcModes();

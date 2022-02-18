@@ -6,8 +6,9 @@ esphome:
 esp8266:
   board: esp01_1m
 
-# Enable logging
+# Enable logging (and disable DEBUG)
 logger:
+  level: INFO
 
 # Enable Home Assistant API
 api:
@@ -40,3 +41,39 @@ climate:
       return {electriqac};
     climates:
       - name: "Electriq 12000 AC 1"
+# overrun automation below here. This is optional but recommended.
+        on_state:
+          - delay: 2s
+          - if:
+              condition:
+                lambda: 'return ((id(electriqac).action == CLIMATE_ACTION_IDLE) && (id(electriqac).mode == CLIMATE_MODE_HEAT) && !id(overrun));'
+              then:
+                - globals.set:
+                    id: 'overrun'
+                    value: 'true'
+                - logger.log: "Overrun fan mode, waiting 30s"
+                - climate.control:
+                    id: 'electriqac'
+                    mode: FAN_ONLY
+                - delay: 30s
+                - if:
+                    condition:
+                      lambda: 'return (id(electriqac).action == CLIMATE_ACTION_FAN);'
+                    then:
+                      - logger.log: "Overrun finished, reverting to heat mode"
+                      - climate.control:
+                          id: 'electriqac'
+                          mode: HEAT
+          - if:
+              condition:
+                lambda: 'return ((id(electriqac).action == CLIMATE_ACTION_HEATING) && id(overrun));'
+              then:
+               - logger.log: "Resetting overrun"
+               - globals.set:
+                    id: 'overrun'
+                    value: 'false'
+                    
+globals:
+  - id: overrun
+    type: bool
+    initial_value: 'true'
