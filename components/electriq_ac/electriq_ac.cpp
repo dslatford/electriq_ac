@@ -250,7 +250,7 @@ void ElectriqAC::control(const climate::ClimateCall &call) {
     // Set fan speed nibble here to avoid unexpected switch-off on temp changes
     AcFanSpeed();
     SendToMCU();
-  } else if (call.get_custom_fan_mode().has_value()) {
+  } else if (call.get_custom_fan_mode() != nullptr) {
     const char* mode = call.get_custom_fan_mode();
     this->set_custom_fan_mode_(mode);
     AcFanSpeed();
