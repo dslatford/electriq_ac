@@ -1,12 +1,12 @@
 # ESPhome component for Electriq 12000 BTU WiFi Smart AC
 
-This custom component for ESPhome replaces the Tuya firmware within the ESP8266 wifi module found inside [Electriq](https://www.electriq.co.uk) branded air conditioning units for integration into Home Assistant. Developed on the 12000 Smart model, others may also be supported.
+This external component for ESPhome replaces the Tuya firmware within the ESP8266 wifi module found inside [Electriq](https://www.electriq.co.uk) branded air conditioning units for integration into Home Assistant. Developed on the 12000 Smart model, others may also be supported.
 
 ## Introduction
 
 The Electriq 12000 BTU WiFi Smart AC with Heat Pump is a portable AC unit sold by (and a brand name of?) https://www.appliancesdirect.co.uk
 
-It includes a Tuya-manufactured WiFi module that communicates via a serial protocol with unit's MCU. 'Smart' control is via the Tuya Smart app, via a Chinese companies cloud infrastructure. No thank-you!
+It includes a Tuya-manufactured ESP8266-based WiFi module that communicates via a serial protocol with unit's MCU. 'Smart' control is via the Tuya Smart app, via a Chinese companies cloud infrastructure. No thank-you!
 
 While Tuya have a [well-documented protocol](https://developer.tuya.com) for incorporating their technology into third party products, supported by ESPhome and Tasmota (Tuya MCU), this AC unit doesn't utilise that protocol. While there are similarities, this protocol uses fixed-length messages without variable data fields, and a single byte header. Only the baud rate and checksum byte, and concept of heartbeat messages match the published protocol. Fortunately, this protocol was simple to reverse engineer.
 
@@ -21,14 +21,14 @@ The protocol was examined using Sigrok/Pulseview and a [cheap logic analyser](ht
 
 ## Protocol
 
-9600 baud 8/N/1 5v UART.
+9600 baud 8/N/1 5v UART. Logic level shifter employed on Tuya module. Be careful if experimenting with other modules not 5v tolerant.
 
 Each byte position has a fixed purpose (unlike the published Tuya MCU protocol with varying data lengths).
 
-*ESP > MCU*  
+*ESP > MCU* heartbeat / command message  
 12 byte word
 
-Two message types are sent. A heartbeat message is issued approx every 2 seconds. Only the header, version and checksum bytes are non-zero. This prompts the MCU to return its status.
+Two message types are sent. A heartbeat message is issued approx every 2 seconds (1800ms). Only the header, version and checksum bytes are non-zero. This prompts the MCU to return its status.
 
 The other message type commands the MCU into changing its operating mode, fan speed, set temperature, swing, Celsius or Fahrenheit display and sleep mode.
 
@@ -42,7 +42,7 @@ Byte 9 = Unknown, 0x0B
 Byte 11 = Unknown, 0x00  
 Byte 12 = Checksum (reminder of sum of all bytes / 256)  
 
-*MCU > ESP*  
+*MCU > ESP* status report  
 17 byte word
 
 As above, with these differences:
@@ -67,8 +67,8 @@ external_components:
     components: [ electriq_ac ]
 
 uart:
-  tx_pin: GPIO1
-  rx_pin: GPIO3
+  tx_pin: GPIO15
+  rx_pin: GPIO13
   baud_rate: 9600
 
 climate:
@@ -76,7 +76,7 @@ climate:
     name: "Electriq AC"
 ```
 
-See `example.yaml` for a complete configuration example.
+See `example.yaml` for a complete configuration example, using secrets and substitutions (my preference).
 
 ESPHome will automatically download and compile the component from this repository. The first installation must be done via serial as below, but subsequent updates can be done OTA.
 
@@ -115,7 +115,7 @@ Once powered up, the device should register on your network and appear online wi
 
 These AC units have, in my opinion, a design flaw in that when reaching set point in heating mode, both compressor and fan shut down together. The latent heat in the evaporator has nowhere to go, so the measured temperature (which we assume to mean *room temperature!*) rises many degrees. This has the negative effect of preventing further heating for an excessive period, without turning the set point right up. The MCU should overrun the fan after turning off the compressor to remove this latent heat.
 
-Fortunately that now happens! I've implemented this in a standard ESPhome automation, configured in the example Yaml file. It's optional, and you may omit this by simply not using the configuration below the overrun comment.
+Fortunately that now happens! I've implemented this in a standard ESPhome automation, configured in the example YAML file. It's optional, and you may omit this by simply not using the configuration below the overrun comment.
 
 Figuring out this logic revealed the MCU can't be trusted to report what you expect when you would expect it (leading to race conditions and faulty logic, for example the MCU might report state HEATING for a few moments when it's already IDLE). Ultimately this lead to improvements within the main code to detect mode and current state (idle/heating etc) among other tweaks.
 
@@ -137,4 +137,6 @@ electriq_ac/
 
 ## Further development
 
-I should state somewhere, *I am not a programmer!* So while I've tried to keep the code clean and sane within my extremely limited abilities, I expect there's much room for improvement. I have no idea how to implement the "custom fan modes" so currently the only speeds available are 1, 3 and 5 (low/mid/high). There's also the possibility that due to who-knows-what, a command from Home Assistant might not make it to the module. I'm unsure why this *(only very rarely)* happens *(and might even be fixed!)*, but rather than checking for individual mode / fan / swing / temperature changes, perhaps the code could poll Home Assistant for all the states, and apply them where the desired state differs from the states reported by the MCU?
+This is 2026, and I have very limited coding abilities (I wrote all this code originally, but have no idea how, a rare manic creative phase?) so Claude was used to assist converting this from an original "custom component" for which support was dropped by ESPHome, into a modern "external component". I wouldn't have managed this myself.
+ 
+ Bugs will exist. There's the possibility that due to who-knows-what, a command from Home Assistant might not make it to the module. I'm unsure why this *(only very rarely)* happens *(and might even be fixed!)*, but rather than checking for individual mode / fan / swing / temperature changes, perhaps the code could poll Home Assistant for all the states, and apply them where the expected state differs from the states reported by the MCU? Probably more work for Claude.
