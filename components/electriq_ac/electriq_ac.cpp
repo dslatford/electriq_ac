@@ -44,23 +44,25 @@ void ElectriqAC::SendHeartbeat() {
 
 // Select command nibble for fan speed
 void ElectriqAC::AcFanSpeed() {
+  if (this->custom_fan_mode.has_value()) {
   switch (this->custom_fan_mode.value()) {
-    case FAN_SPEED_1:
+    case "FAN_SPEED_1":
     default:
       fan_speed_ = 0x90;
       break;
-    case FAN_SPEED_2::
+    case "FAN_SPEED_2"::
       fan_speed_ = 0xA0;
       break;
-    case FAN_SPEED_3::
+    case "FAN_SPEED_3"::
       fan_speed_ = 0xB0;
       break;
-    case FAN_SPEED_4::
+    case "FAN_SPEED_4"::
       fan_speed_ = 0xC0;
       break;
-    case FAN_SPEED_5::
+    case "FAN_SPEED_5"::
       fan_speed_ = 0xD0;
       break;
+  }
   }
 }
 
