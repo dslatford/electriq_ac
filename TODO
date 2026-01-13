@@ -1,0 +1,5 @@
+Improve detection of message state changes to publish changes. Do not sum bytes. Store each value we care about and compare to last?
+
+Do not set a default temperature. Get the current set temperature and publish. (fix setting to 25c on power on).
+
+Biggest change, ensure no HA requests are lost? Get whole state and compare to current?

@@ -55,11 +55,30 @@ Byte 13 = Action (Idle or active)
 Byte 14-16 = Unknown, 0x00  
 Byte 17 = Checksum (reminder of sum of all bytes / 256)  
 
-## Configuring Home Assistant
+## Installation
 
-With ESPhome installed, create a new device of type ESP8266. Edit the device yaml file and paste in the contents of electriq-12000-ac.yaml, preserving the existing ota and ap passwords and device name. Copy the file electriq_ac.h into /config/esphome/ I use the "Terminal & SSH" addon to scp files around.
+### Using External Components
 
-Click install > manual download, and ESPhome should compile and download the firmware image. The first installation has to be done physically, any subsequent builds can be transferred OTA.
+With ESPHome installed, create a new device of type ESP8266. Add the following to your device YAML configuration:
+
+```yaml
+external_components:
+  - source: github://dslatford/electriq_ac
+    components: [ electriq_ac ]
+
+uart:
+  tx_pin: GPIO1
+  rx_pin: GPIO3
+  baud_rate: 9600
+
+climate:
+  - platform: electriq_ac
+    name: "Electriq AC"
+```
+
+See `example.yaml` for a complete configuration example.
+
+ESPHome will automatically download and compile the component from this repository. The first installation must be done via serial as below, but subsequent updates can be done OTA.
 
 ## Initial flashing
 
@@ -94,11 +113,27 @@ Once powered up, the device should register on your network and appear online wi
 
 ## Overrun
 
-These AC units have a design flaw in that when reaching set point in heating mode, both compressor and fan shut down together. The latent heat in the evaporator has nowhere to go, so the measured temperature (which we assume to mean *room temperature!*) rises many degrees. This has the negative effect of preventing further heating for an excessive period, without turning the set point right up. The MCU should overrun the fan after turning off the compressor to remove this latent heat.
+These AC units have, in my opinion, a design flaw in that when reaching set point in heating mode, both compressor and fan shut down together. The latent heat in the evaporator has nowhere to go, so the measured temperature (which we assume to mean *room temperature!*) rises many degrees. This has the negative effect of preventing further heating for an excessive period, without turning the set point right up. The MCU should overrun the fan after turning off the compressor to remove this latent heat.
 
-Fortunately that now happens! I've implemented this in a standard ESPhome automation, configured in the Yaml file. It's optional, and you may omit this by simply not using the configuration below the overrun comment.
+Fortunately that now happens! I've implemented this in a standard ESPhome automation, configured in the example Yaml file. It's optional, and you may omit this by simply not using the configuration below the overrun comment.
 
 Figuring out this logic revealed the MCU can't be trusted to report what you expect when you would expect it (leading to race conditions and faulty logic, for example the MCU might report state HEATING for a few moments when it's already IDLE). Ultimately this lead to improvements within the main code to detect mode and current state (idle/heating etc) among other tweaks.
+
+## Repository Structure
+
+For external component compatibility, this repository is structured as follows:
+
+```
+electriq_ac/
+├── README.md
+├── components/
+│   └── electriq_ac/
+│       ├── __init__.py          # Component registration
+│       ├── climate.py           # Climate platform configuration
+│       ├── electriq_ac.h        # Component header
+│       └── electriq_ac.cpp      # Component implementation
+└── example.yaml                 # Example configuration
+```
 
 ## Further development
 
