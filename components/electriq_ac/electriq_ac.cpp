@@ -7,6 +7,13 @@ namespace electriq_ac {
 
 static const char *const TAG = "electriq_ac";
 
+// Custom fan mode string constants
+static const char *const FAN_SPEED_1 = "Low";
+static const char *const FAN_SPEED_2 = "Low-Mid";
+static const char *const FAN_SPEED_3 = "Mid";
+static const char *const FAN_SPEED_4 = "Mid-High";
+static const char *const FAN_SPEED_5 = "High";
+
 void ElectriqAC::setup() {
   this->set_interval("heartbeat", 1800, [this] { SendHeartbeat(); });
 }
@@ -44,17 +51,13 @@ void ElectriqAC::SendHeartbeat() {
 
 // Select command nibble for fan speed
 void ElectriqAC::AcFanSpeed() {
-  switch (this->fan_mode.value()) {
-    case climate::CLIMATE_FAN_LOW:
-    default:
-      fan_speed_ = 0x90;
-      break;
-    case climate::CLIMATE_FAN_MEDIUM:
-      fan_speed_ = 0xB0;
-      break;
-    case climate::CLIMATE_FAN_HIGH:
-      fan_speed_ = 0xD0;
-      break;
+  if (this->has_custom_fan_mode()) {
+    const char* mode = this->get_custom_fan_mode();
+    if (strcmp(mode, FAN_SPEED_1) == 0) fan_speed_ = 0x90;
+    else if (strcmp(mode, FAN_SPEED_2) == 0) fan_speed_ = 0xA0;
+    else if (strcmp(mode, FAN_SPEED_3) == 0) fan_speed_ = 0xB0;
+    else if (strcmp(mode, FAN_SPEED_4) == 0) fan_speed_ = 0xC0;
+    else if (strcmp(mode, FAN_SPEED_5) == 0) fan_speed_ = 0xD0;
   }
 }
 
@@ -192,15 +195,23 @@ void ElectriqAC::ReadMCU() {
         case 0x90:
         default:
           ESP_LOGD(TAG, "Detected fan: low");
-          this->fan_mode = climate::CLIMATE_FAN_LOW;
+          this->set_custom_fan_mode_(FAN_SPEED_1);
+          break;
+        case 0xA0:
+          ESP_LOGD(TAG, "Detected fan: low_medium");
+          this->set_custom_fan_mode_(FAN_SPEED_2);
           break;
         case 0xB0:
           ESP_LOGD(TAG, "Detected fan: medium");
-          this->fan_mode = climate::CLIMATE_FAN_MEDIUM;
+          this->set_custom_fan_mode_(FAN_SPEED_3);
+          break;
+        case 0xC0:
+          ESP_LOGD(TAG, "Detected fan: medium_high");
+          this->set_custom_fan_mode_(FAN_SPEED_4);
           break;
         case 0xD0:
           ESP_LOGD(TAG, "Detected fan: high");
-          this->fan_mode = climate::CLIMATE_FAN_HIGH;
+          this->set_custom_fan_mode_(FAN_SPEED_5);
           break;
       }
       // update swing
@@ -246,9 +257,9 @@ void ElectriqAC::control(const climate::ClimateCall &call) {
     // Set fan speed nibble here to avoid unexpected switch-off on temp changes
     AcFanSpeed();
     SendToMCU();
-  } else if (call.get_fan_mode().has_value()) {
-    climate::ClimateFanMode fan_mode = *call.get_fan_mode();
-    this->fan_mode = fan_mode;
+  } else if (call.get_custom_fan_mode() != nullptr) {
+    const char* mode = call.get_custom_fan_mode();
+    this->set_custom_fan_mode_(mode);
     AcFanSpeed();
     SendToMCU();
   } else if (call.get_swing_mode().has_value()) {
@@ -282,7 +293,13 @@ climate::ClimateTraits ElectriqAC::traits() {
 
   traits.set_supported_swing_modes({climate::CLIMATE_SWING_OFF, climate::CLIMATE_SWING_VERTICAL});
 
-  traits.set_supported_fan_modes({climate::CLIMATE_FAN_LOW, climate::CLIMATE_FAN_MEDIUM, climate::CLIMATE_FAN_HIGH});
+  traits.set_supported_custom_fan_modes({
+    FAN_SPEED_1,
+    FAN_SPEED_2,
+    FAN_SPEED_3,
+    FAN_SPEED_4,
+    FAN_SPEED_5
+  });
 
   return traits;
 }
