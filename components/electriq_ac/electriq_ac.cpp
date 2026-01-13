@@ -44,13 +44,13 @@ void ElectriqAC::SendHeartbeat() {
 
 // Select command nibble for fan speed
 void ElectriqAC::AcFanSpeed() {
-  if (this->custom_fan_mode.has_value()) {
-    std::string mode = *this->custom_fan_mode;
-    if (mode == "FAN_SPEED_1") fan_speed_ = 0x90;
-    else if (mode == "FAN_SPEED_2") fan_speed_ = 0xA0;  // Your actual value
-    else if (mode == "FAN_SPEED_3") fan_speed_ = 0xB0;
-    else if (mode == "FAN_SPEED_4") fan_speed_ = 0xC0;  // Your actual value
-    else if (mode == "FAN_SPEED_5") fan_speed_ = 0xD0;
+  if (this->has_custom_fan_mode()) {
+    const char* mode = this->get_custom_fan_mode().value();
+    if (strcmp(mode, "FAN_SPEED_1") == 0) fan_speed_ = 0x90;
+    else if (strcmp(mode, "FAN_SPEED_2") == 0) fan_speed_ = 0xA0;
+    else if (strcmp(mode, "FAN_SPEED_3") == 0) fan_speed_ = 0xB0;
+    else if (strcmp(mode, "FAN_SPEED_4") == 0) fan_speed_ = 0xC0;
+    else if (strcmp(mode, "FAN_SPEED_5") == 0) fan_speed_ = 0xD0;
   }
 }
 
@@ -188,23 +188,23 @@ void ElectriqAC::ReadMCU() {
         case 0x90:
         default:
           ESP_LOGD(TAG, "Detected fan: low");
-          this->custom_fan_mode = "FAN_SPEED_1";
+          this->set_custom_fan_mode_("FAN_SPEED_1");
           break;
         case 0xA0:
           ESP_LOGD(TAG, "Detected fan: low_medium");
-          this->custom_fan_mode = "FAN_SPEED_2";
+          this->set_custom_fan_mode_("FAN_SPEED_2");
           break;
         case 0xB0:
           ESP_LOGD(TAG, "Detected fan: medium");
-          this->custom_fan_mode = "FAN_SPEED_3";
+          this->set_custom_fan_mode_("FAN_SPEED_3");
           break;
         case 0xC0:
           ESP_LOGD(TAG, "Detected fan: medium_high");
-          this->custom_fan_mode = "FAN_SPEED_4";
+          this->set_custom_fan_mode_("FAN_SPEED_4");
           break;
         case 0xD0:
           ESP_LOGD(TAG, "Detected fan: high");
-          this->custom_fan_mode = "FAN_SPEED_5";
+          this->set_custom_fan_mode_("FAN_SPEED_5");
           break;
       }
       // update swing
@@ -251,8 +251,8 @@ void ElectriqAC::control(const climate::ClimateCall &call) {
     AcFanSpeed();
     SendToMCU();
   } else if (call.get_custom_fan_mode().has_value()) {
-//    climate::ClimateFanMode fan_mode = *call.get_fan_mode();
-    this->custom_fan_mode = *call.get_custom_fan_mode();
+    const char* mode = call.get_custom_fan_mode().value();
+    this->set_custom_fan_mode_(mode);
     AcFanSpeed();
     SendToMCU();
   } else if (call.get_swing_mode().has_value()) {
