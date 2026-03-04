@@ -52,7 +52,7 @@ void ElectriqAC::SendHeartbeat() {
 // Select command nibble for fan speed
 void ElectriqAC::AcFanSpeed() {
   if (this->has_custom_fan_mode()) {
-    const char* mode = this->get_custom_fan_mode();
+    const char* mode = this->get_custom_fan_mode().c_str();
     if (strcmp(mode, FAN_SPEED_1) == 0) fan_speed_ = 0x90;
     else if (strcmp(mode, FAN_SPEED_2) == 0) fan_speed_ = 0xA0;
     else if (strcmp(mode, FAN_SPEED_3) == 0) fan_speed_ = 0xB0;
@@ -257,8 +257,8 @@ void ElectriqAC::control(const climate::ClimateCall &call) {
     // Set fan speed nibble here to avoid unexpected switch-off on temp changes
     AcFanSpeed();
     SendToMCU();
-  } else if (call.get_custom_fan_mode() != nullptr) {
-    const char* mode = call.get_custom_fan_mode();
+  } else if (call.has_custom_fan_mode()) {
+    auto mode = call.get_custom_fan_mode();
     this->set_custom_fan_mode_(mode);
     AcFanSpeed();
     SendToMCU();
