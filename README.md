@@ -2,6 +2,8 @@
 
 This external component for ESPhome replaces the Tuya firmware within the ESP8266 wifi module found inside [Electriq](https://www.electriq.co.uk) branded air conditioning units for integration into Home Assistant. Developed on the 12000 Smart model, others may also be supported.
 
+**Not all Electriq units speak the proprietary protocol this component implements.** A unit purchased 2023/2024 (TYWE1S module, ESP8285H08 chip) turned out to speak the standard, documented Tuya MCU protocol instead - confirmed via checksum verification against its real traffic. If that's what you have, you don't need this custom component at all; see [planestranescars/electriq-ac-tuya](https://github.com/planestranescars/electriq-ac-tuya) for the full writeup, datapoint table, and a ready-to-use config. Quickest way to tell which protocol your unit speaks: flash a bare config with just `uart:` + `tuya:` (no climate platform) and watch the boot log - if it dumps a list of datapoints, use that repo instead of this one.
+
 ## Introduction
 
 The Electriq 12000 BTU WiFi Smart AC with Heat Pump is a portable AC unit sold by (and a brand name of?) https://www.appliancesdirect.co.uk

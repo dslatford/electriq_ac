@@ -16,6 +16,7 @@ static const char *const FAN_SPEED_5 = "High";
 
 void ElectriqAC::setup() {
   this->set_interval("heartbeat", 1800, [this] { SendHeartbeat(); });
+  this->set_supported_custom_fan_modes({FAN_SPEED_1, FAN_SPEED_2, FAN_SPEED_3, FAN_SPEED_4, FAN_SPEED_5});
 }
 
 // only used during debugging
@@ -105,8 +106,6 @@ bool ElectriqAC::CheckIdle(uint8_t &a) {
 
 // read and parse messages from MCU serial
 void ElectriqAC::ReadMCU() {
-  uint8_t pos = 0;
-  uint8_t csum = 0;
   uint8_t c;
   uint8_t b[16];
   
@@ -123,12 +122,12 @@ void ElectriqAC::ReadMCU() {
       while (this->available()) {
         read_byte(&c);
       }
-      // validate the checksum before progressing
-      while (pos < 14) {
+      // validate the checksum before progressing (sums all bytes except the checksum byte itself)
+      uint8_t csum = 0xAA;
+      for (uint8_t pos = 0; pos < 15; ++pos) {
         csum += b[pos];
-        ++pos;
       }
-      if ((csum += 0xAA) != b[15]) {
+      if (csum != b[15]) {
         ESP_LOGD(TAG, "Bad received checksum %s, should be %s", format_hex_pretty(csum).c_str(),
                  format_hex_pretty(b[15]).c_str());
         return;
@@ -138,11 +137,6 @@ void ElectriqAC::ReadMCU() {
       uint8_t m = (b[1] & 0x0F);
       uint8_t s = (b[2] & 0x0F);
       uint8_t a = (b[11] & 0x0F);
-      static uint8_t last_b1;   // command
-      static uint8_t last_b2;   // swing
-      static uint8_t last_b3;   // set temp
-      static uint8_t last_b7;   // temp probe
-      static uint8_t last_b11;  // active state
 
       if (f == 0x10) {
         ESP_LOGD(TAG, "Detected mode: Standby");
@@ -228,20 +222,21 @@ void ElectriqAC::ReadMCU() {
       target_temp_ = b[3];
 
       // only publish state if something changes
-      if ((last_b1 != b[1]) || (last_b2 != b[2]) || (last_b3 != b[3]) || (last_b7 != b[7]) || (last_b11 != b[11])) {
+      if ((last_b1_ != b[1]) || (last_b2_ != b[2]) || (last_b3_ != b[3]) || (last_b7_ != b[7]) || (last_b11_ != b[11])) {
         ESP_LOGD(TAG, "Publishing new state...");
         this->publish_state();
-        last_b1 = b[1];
-        last_b2 = b[2];
-        last_b3 = b[3];
-        last_b7 = b[7];
-        last_b11 = b[11];
+        last_b1_ = b[1];
+        last_b2_ = b[2];
+        last_b3_ = b[3];
+        last_b7_ = b[7];
+        last_b11_ = b[11];
       }
     }
   }
 }
 
 void ElectriqAC::control(const climate::ClimateCall &call) {
+  bool changed = false;
   if (call.get_mode().has_value()) {
     ESP_LOGD(TAG, "New mode value seen");
     climate::ClimateMode mode = *call.get_mode();
@@ -251,39 +246,40 @@ void ElectriqAC::control(const climate::ClimateCall &call) {
     if (this->mode != climate::CLIMATE_MODE_OFF) {
       AcFanSpeed();
     }
-    SendToMCU();
-  } else if (call.get_target_temperature().has_value()) {
+    changed = true;
+  }
+  if (call.get_target_temperature().has_value()) {
     target_temp_ = *call.get_target_temperature();
     // Set fan speed nibble here to avoid unexpected switch-off on temp changes
     AcFanSpeed();
-    SendToMCU();
-  } else if (call.has_custom_fan_mode()) {
+    changed = true;
+  }
+  if (call.has_custom_fan_mode()) {
     auto mode = call.get_custom_fan_mode();
     this->set_custom_fan_mode_(mode);
     AcFanSpeed();
-    SendToMCU();
-  } else if (call.get_swing_mode().has_value()) {
+    changed = true;
+  }
+  if (call.get_swing_mode().has_value()) {
     climate::ClimateSwingMode swing_mode = *call.get_swing_mode();
     this->swing_mode = swing_mode;
     AcSwing();
     // Set fan speed nibble here to avoid unexpected switch-off on temp changes
     AcFanSpeed();
+    changed = true;
+  }
+  // a single HA service call can carry mode + temperature + fan + swing together;
+  // apply everything present, then send once
+  if (changed) {
     SendToMCU();
   }
 }
 
 climate::ClimateTraits ElectriqAC::traits() {
   auto traits = climate::ClimateTraits();
-  
-  // Using deprecated methods - they still work, just show warnings
-  // The replacement API varies by ESPHome version, update in future.
-  #pragma GCC diagnostic push
-  #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-  traits.set_supports_action(true);
-  traits.set_supports_two_point_target_temperature(false);
-  traits.set_supports_current_temperature(true);
-  #pragma GCC diagnostic pop
-  
+
+  traits.add_feature_flags(climate::CLIMATE_SUPPORTS_ACTION | climate::CLIMATE_SUPPORTS_CURRENT_TEMPERATURE);
+
   traits.set_visual_min_temperature(16);
   traits.set_visual_max_temperature(32);
   traits.set_visual_temperature_step(1);
@@ -292,14 +288,6 @@ climate::ClimateTraits ElectriqAC::traits() {
                               climate::CLIMATE_MODE_DRY, climate::CLIMATE_MODE_FAN_ONLY});
 
   traits.set_supported_swing_modes({climate::CLIMATE_SWING_OFF, climate::CLIMATE_SWING_VERTICAL});
-
-  traits.set_supported_custom_fan_modes({
-    FAN_SPEED_1,
-    FAN_SPEED_2,
-    FAN_SPEED_3,
-    FAN_SPEED_4,
-    FAN_SPEED_5
-  });
 
   return traits;
 }
