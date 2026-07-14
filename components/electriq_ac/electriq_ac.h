@@ -28,6 +28,13 @@ class ElectriqAC : public climate::Climate, public Component, public uart::UARTD
   uint8_t fan_speed_ = 0x90;
   uint8_t swing_ = 0;
   uint8_t target_temp_ = 0;
+
+  // last-seen MCU status bytes, used to suppress redundant publish_state() calls
+  uint8_t last_b1_ = 0;
+  uint8_t last_b2_ = 0;
+  uint8_t last_b3_ = 0;
+  uint8_t last_b7_ = 0;
+  uint8_t last_b11_ = 0;
 };
 
 }  // namespace electriq_ac

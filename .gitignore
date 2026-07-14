@@ -1,0 +1,5 @@
+secrets.yaml
+.esphome/
+build/
+*.bin
+__pycache__/
